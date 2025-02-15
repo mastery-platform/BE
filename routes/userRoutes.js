@@ -11,11 +11,14 @@ const {
 } = require("../controllers/userController");
 const { protect, admin } = require("../middleware/authMiddleware");
 
-// Protected route to get the authenticated user's details
+// ✅ FIX: Ensure "/me" route is first to prevent conflicts with "/:id"
 router.get("/me", protect, getMe);
 
 // Register a new user (public)
 router.post("/register", registerUser);
+
+// Login user (public)
+router.post("/login", loginUser);
 
 // Get all users (admin only)
 router.get("/", protect, admin, getUsers);
@@ -28,8 +31,5 @@ router.put("/:id", protect, updateUser);
 
 // Delete a user (admin only)
 router.delete("/:id", protect, admin, deleteUser);
-
-// POST /api/users/login
-router.post("/login", loginUser);
 
 module.exports = router;
