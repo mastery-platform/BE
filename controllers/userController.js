@@ -1,84 +1,70 @@
-const User = require("../models/User");
+const User = require("../models/user");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
-// Generate a JWT token
-const generateToken = (id, role) => {
-  return jwt.sign({ id, role }, process.env.JWT_SECRET, { expiresIn: "30d" });
+// **Generate JWT Token**
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "30d" });
 };
 
-// CREATE: Register a new user
+// **REGISTER USER**
 const registerUser = async (req, res) => {
   const { name, email, password } = req.body;
 
   try {
-    // Ensure all required fields are provided
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
-    }
-
-    // Check if the user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    // Create a new user (Password is hashed in User model)
     const user = await User.create({
       name,
       email,
-      password,
+      password, // Hashed automatically via pre-save middleware in User model
     });
 
-    if (user) {
-      res.status(201).json({
-        _id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        token: generateToken(user.id, user.role),
-      });
-    } else {
-      res.status(400).json({ message: "Invalid user data" });
-    }
+    res.status(201).json({
+      _id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      token: generateToken(user.id),
+    });
   } catch (error) {
-    console.error("Error in registerUser:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: error.message });
   }
 };
 
-// LOGIN: Authenticate user
+// **LOGIN USER**
 const loginUser = async (req, res) => {
   const { email, password } = req.body;
 
   try {
-    // Check if the user exists
     const user = await User.findOne({ email });
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Compare passwords
     const isMatch = await user.matchPassword(password);
+
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Return user data with JWT token
     res.status(200).json({
       _id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
-      token: generateToken(user.id, user.role),
+      token: generateToken(user.id),
     });
   } catch (error) {
-    console.error("Error in loginUser:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: error.message });
   }
 };
 
-// GET /api/users/me - Get current user details
+// **GET CURRENT USER**
 const getMe = async (req, res) => {
   try {
     if (!req.user) {
@@ -86,12 +72,11 @@ const getMe = async (req, res) => {
     }
     res.status(200).json(req.user);
   } catch (error) {
-    console.error("Error in getMe:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: error.message });
   }
 };
 
-// READ: Get all users (admin only)
+// **GET ALL USERS (ADMIN ONLY)**
 const getUsers = async (req, res) => {
   try {
     const users = await User.find().select("-password");
@@ -101,7 +86,7 @@ const getUsers = async (req, res) => {
   }
 };
 
-// READ: Get a single user by ID
+// **GET USER BY ID**
 const getUserById = async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select("-password");
@@ -114,35 +99,44 @@ const getUserById = async (req, res) => {
   }
 };
 
-// UPDATE: Update user details
+// **UPDATE USER INFO (Name, Email, Password)**
 const updateUser = async (req, res) => {
   try {
-      const user = await User.findById(req.params.id);
+    const user = await User.findById(req.params.id);
 
-      if (!user) {
-          return res.status(404).json({ message: "User not found" });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update name and email if provided
+    if (req.body.name) user.name = req.body.name;
+    if (req.body.email) user.email = req.body.email;
+
+    // ** Hash and update password if provided **
+    if (req.body.password) {
+      if (req.body.password.length < 6) {
+        return res
+          .status(400)
+          .json({ message: "Password must be at least 6 characters long" });
       }
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(req.body.password, salt);
+    }
 
-      // Update user fields
-      if (req.body.name) user.name = req.body.name;
-      if (req.body.email) user.email = req.body.email;
-      if (req.body.password) user.password = req.body.password; // This will trigger pre-save middleware
+    await user.save(); // ✅ Use .save() to trigger password hashing
 
-      await user.save(); // Ensure password is hashed
-
-      res.status(200).json({
-          _id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-      });
+    res.status(200).json({
+      _id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
   } catch (error) {
-      res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.message });
   }
 };
 
-
-// DELETE: Remove a user by ID
+// **DELETE USER (ADMIN ONLY)**
 const deleteUser = async (req, res) => {
   try {
     const user = await User.findByIdAndDelete(req.params.id);
